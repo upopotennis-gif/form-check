@@ -6,6 +6,12 @@ const IS_MOBILE = matchMedia('(pointer:coarse)').matches;
 const MAXSIDE = IS_MOBILE ? 560 : 860;   // 保存しておくコマ画像の長辺
 const DETSIDE = 1280;                     // 解析に使う画像の長辺
 const MAXDUR = 12;
+// 打ち方ごとの設定：軌跡を残す長さ（秒）
+const SHOTS = {
+  stroke: { name: 'ストローク', trail: 0.6 },
+  serve: { name: 'サーブ・スマッシュ', trail: 1.0 },
+  volley: { name: 'ボレー', trail: 0.4 },
+};
 
 // MediaPipe の番号
 const L = { nose: 0, lSh: 11, rSh: 12, lEl: 13, rEl: 14, lWr: 15, rWr: 16, lIdx: 19, rIdx: 20,
@@ -23,6 +29,7 @@ const METRICS = [
   { key: 'tilt', name: '肩の傾き（利き腕側が下がると＋）', unit: '°' },
   { key: 'twist', name: '肩と腰のねじれ', unit: '°' },
   { key: 'wspeed', name: '手首の速さ', unit: '身長/秒', dec: 1 },
+  { key: 'height', name: 'ヘッドの高さ（足首から・身長比）', unit: '身長比', dec: 2 },
 ];
 
 /* ---------------- モデル ---------------- */
@@ -55,7 +62,7 @@ async function ensureModels(quality, msg) {
 const clips = { A: newClip('A'), B: newClip('B') };
 function newClip(id) {
   return { id, file: null, url: null, video: null, W: 0, H: 0, dur: 0, t0: 0, t1: 0, fps: 30,
-    frames: [], ready: false, hand: 'auto', side: 'R', handAuto: true, mirror: false,
+    frames: [], ready: false, hand: 'auto', shot: 'stroke', side: 'R', handAuto: true, mirror: false,
     impact: 0, manual: {}, lm: [], wl: [], racket: [], m: [], bodyH: 1, torso: 1, busy: false };
 }
 const ready = () => ['A', 'B'].filter(k => clips[k].ready).map(k => clips[k]);
@@ -100,6 +107,10 @@ function buildCard(id) {
   }
   $('.setIn', card).onclick = () => { c.t0 = Math.min(v.currentTime, c.t1 - 0.2); if (c.t1 - c.t0 > MAXDUR) c.t1 = c.t0 + MAXDUR; rangeTxt(); };
   $('.setOut', card).onclick = () => { c.t1 = Math.max(v.currentTime, c.t0 + 0.2); if (c.t1 - c.t0 > MAXDUR) c.t0 = c.t1 - MAXDUR; rangeTxt(); };
+  $('.shot', card).onchange = e => {
+    c.shot = e.target.value;
+    if (c.ready) { autoImpact(c); summary(c); updateViewer(); setT(0); }
+  };
   $('.hand', card).onchange = e => {
     c.hand = e.target.value;
     if (c.ready) { resolveHand(c); recompute(c, true); renderAll(); summary(c); }
@@ -188,7 +199,7 @@ function summary(c) {
   const body = c.lm.filter(Boolean).length, rk = c.racket.filter(r => r && r.kind === 'auto').length;
   const filled = c.racket.filter(Boolean).length;
   s.innerHTML = `解析ずみ：${n}コマ ／ 体 ${pct(body, n)} ／ ラケット ${pct(rk, n)}（補って ${pct(filled, n)}）<br>` +
-    `利き手：<b>${c.side === 'R' ? '右' : '左'}</b>${c.hand === 'auto' ? '（自動判定）' : ''}　` +
+    `打ち方：<b>${SHOTS[c.shot].name}</b>　利き手：<b>${c.side === 'R' ? '右' : '左'}</b>${c.hand === 'auto' ? '（自動判定）' : ''}　` +
     (rk / n < 0.3 ? '<span style="color:var(--warn)">ラケットが少ししか見つかりませんでした。「ヘッドの位置を直す」で補えます。</span>' : '');
   s.classList.remove('hidden');
 }
@@ -371,13 +382,36 @@ function computeMetrics(c) {
       tilt: Math.atan2(s.y - o.y, Math.abs(s.x - o.x)) * 180 / Math.PI,
       twist: Math.abs(norm180(yaw(L.lSh, L.rSh) - yaw(L.lHip, L.rHip))),
       speed: sp[i], wspeed: wsp[i],
+      height: c.racket[i] ? (mid(P(L.lAn), P(L.rAn)).y - c.racket[i].y) / c.bodyH : NaN,
     };
   });
 }
+// インパクトの目安
+//  ストローク：ヘッドが一番速いコマ
+//  サーブ・スマッシュ：一番速いコマの0.2秒前〜0.1秒後のうち、ヘッド（なければ手首）が一番高いコマ
+//  ボレー：速さが最大の3割以上のコマのうち、肩から手までが一番伸びたコマ
 function autoImpact(c) {
-  let bi = -1, bv = -1;
-  const key = c.m.some(m => Number.isFinite(m.speed)) ? 'speed' : 'wspeed';
-  c.m.forEach((m, i) => { const v = m[key]; if (Number.isFinite(v) && v > bv) { bv = v; bi = i; } });
+  const useRacket = c.m.some(m => Number.isFinite(m.speed));
+  const key = useRacket ? 'speed' : 'wspeed';
+  const vmax = Math.max(0, ...c.m.map(m => m[key]).filter(Number.isFinite));
+  const R = c.side === 'R', wr = R ? L.rWr : L.lWr, sh = R ? L.rSh : L.lSh;
+  const peak = c.m.findIndex(m => m[key] === vmax);
+  const score = i => {
+    const m = c.m[i], v = m[key];
+    if (!Number.isFinite(v)) return -Infinity;
+    if (c.shot === 'serve') {
+      if (i < peak - 0.2 * c.fps || i > peak + 0.1 * c.fps) return -Infinity;
+      const r = c.racket[i], p = useRacket ? (r && r.kind !== 'interp' ? r : null) : c.lm[i] && lmPx(c, c.lm[i], wr);
+      return p ? -p.y : -Infinity;
+    }
+    if (c.shot === 'volley') {
+      if (v < vmax * 0.3 || !c.lm[i]) return -Infinity;
+      return dist(lmPx(c, c.lm[i], sh), handPx(c, c.lm[i], c.side));
+    }
+    return v;
+  };
+  let bi = -1, bv = -Infinity;
+  c.m.forEach((_, i) => { const v = score(i); if (v > bv) { bv = v; bi = i; } });
   c.impact = bi >= 0 ? bi : Math.floor(c.frames.length / 2);
 }
 function recompute(c, findImpact) {
@@ -489,7 +523,7 @@ function drawOverlay(ctx, c, i, o, M, u, color, withAngles) {
   const lm = c.lm[i];
   const lw = Math.max(1.5, 2.2 * u);
   // 軌跡
-  const from = o.full ? 0 : Math.max(0, i - Math.round(c.fps * 0.6));
+  const from = o.full ? 0 : Math.max(0, i - Math.round(c.fps * SHOTS[c.shot].trail));
   const to = o.full ? c.frames.length - 1 : i;
   if (o.wrist) trail(ctx, from, to, k => c.lm[k] && M(lmPx(c, c.lm[k], c.side === 'R' ? L.rWr : L.lWr)), color === COL.skel ? '#9fe8ff' : color, lw * 0.9, i, c.impact, false);
   if (o.trail && o.racket) trail(ctx, from, to, k => c.racket[k] && M(c.racket[k]), color === COL.skel ? COL.racket : color, lw * 1.4, i, c.impact, true);

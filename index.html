@@ -176,6 +176,7 @@ footer{margin-top:30px;font-size:12px;color:var(--mute);text-align:center}
   <div class="panel"><h4>撮り方</h4><ul>
     <li>スマホを<b>固定</b>して撮る（三脚・フェンスに固定）</li>
     <li>頭から足先、ラケットの先まで<b>全身が入る</b>距離で</li>
+    <li>おすすめは<b>横</b>（打つ方向に対して真横）。ラケットを持つ腕が体の陰に隠れない側から</li>
     <li>比べる動画は<b>同じ向き</b>から（真横どうし・真後ろどうし）</li>
     <li>スローモーション撮影だとヘッドがぶれにくく、よく取れます</li>
     <li>1本は1〜2スイング（数秒）が目安。長い動画は範囲を決めてから解析</li>
@@ -184,7 +185,7 @@ footer{margin-top:30px;font-size:12px;color:var(--mute);text-align:center}
     <li><b>並べて見る</b>：2本をインパクトの瞬間でそろえて同時に動かします</li>
     <li><b>重ねて比べる</b>：Bの骨格を、Aの腰の位置と胴の長さに合わせてAの上に重ねます</li>
     <li>利き手や撮る向きが逆のときは「Bを左右反転」</li>
-    <li>インパクトは、ヘッドが一番速いコマを自動で選びます。ずれていたら「今のコマをインパクトにする」</li>
+    <li>インパクトは打ち方に合わせて自動で選びます（ストローク＝ヘッドが一番速いコマ、サーブ・スマッシュ＝速く振っているうちでヘッドが一番高いコマ、ボレー＝振っているうちで腕が一番伸びたコマ）。ずれていたら「今のコマをインパクトにする」</li>
   </ul></div>
   <div class="panel"><h4>ラケットヘッドについて</h4><ul>
     <li>ラケットは画像認識で自動で探し、面の真ん中あたりを推定します</li>
@@ -205,6 +206,7 @@ footer{margin-top:30px;font-size:12px;color:var(--mute);text-align:center}
     <div class="row">
       <button class="setIn">今の位置を開始に</button>
       <button class="setOut">今の位置を終了に</button>
+      <label>打ち方 <select class="shot"><option value="stroke">ストローク</option><option value="serve">サーブ・スマッシュ</option><option value="volley">ボレー</option></select></label>
       <label>利き手 <select class="hand"><option value="auto">自動</option><option value="R">右</option><option value="L">左</option></select></label>
     </div>
     <div class="row">
