@@ -63,7 +63,7 @@ const clips = { A: newClip('A'), B: newClip('B') };
 function newClip(id) {
   return { id, file: null, url: null, video: null, W: 0, H: 0, dur: 0, t0: 0, t1: 0, fps: 30,
     frames: [], ready: false, hand: 'auto', shot: 'stroke', side: 'R', handAuto: true, mirror: false,
-    impact: 0, manual: {}, lm: [], wl: [], racket: [], m: [], bodyH: 1, torso: 1, busy: false };
+    impact: 0, manual: {}, lm: [], wl: [], racket: [], m: [], bodyH: 1, torso: 1, busy: false, libId: null, title: '' };
 }
 const ready = () => ['A', 'B'].filter(k => clips[k].ready).map(k => clips[k]);
 
@@ -76,6 +76,21 @@ function buildCard(id) {
   $('.ttl', card).textContent = id === 'A' ? '動画A' : '動画B（比べる相手）';
   const drop = $('.drop', card), input = $('input', drop), prev = $('.prev', card), v = $('video', card);
   c.video = v; c.card = card;
+  const libLink = $('.fromlib', card);
+  libLink.onclick = () => $('#library').scrollIntoView({ behavior: 'smooth' });
+  c.showEmpty = () => {
+    card.classList.remove('lib'); drop.classList.remove('hidden'); prev.classList.add('hidden');
+    libLink.classList.toggle('hidden', !libCount);
+  };
+  if (id === 'B') {
+    $('.addB', card).onclick = () => { card.classList.remove('collapsed'); c.showEmpty(); };
+    $('.x', card).classList.remove('hidden');
+    $('.x', card).onclick = () => {
+      reset(c); v.removeAttribute('src'); c.dur = 0; c.libId = null;
+      $('.summary', card).classList.add('hidden'); c.status('');
+      c.showEmpty(); card.classList.add('collapsed');
+    };
+  }
   drop.onclick = () => input.click();
   input.onchange = () => input.files[0] && load(input.files[0]);
   drop.ondragover = e => { e.preventDefault(); drop.classList.add('over'); };
@@ -92,8 +107,9 @@ function buildCard(id) {
     if (!file.type.startsWith('video') && !/\.(mov|mp4|m4v|webm)$/i.test(file.name)) { status('動画ファイルを選んでください', true); return; }
     reset(c);
     if (c.url) URL.revokeObjectURL(c.url);
-    c.file = file; c.url = URL.createObjectURL(file);
+    c.file = file; c.url = URL.createObjectURL(file); c.libId = null; c.title = '';
     v.src = c.url;
+    card.classList.remove('lib'); libLink.classList.add('hidden');
     drop.classList.add('hidden'); prev.classList.remove('hidden');
     $('.summary', card).classList.add('hidden');
     status('動画を読み込み中…');
@@ -109,11 +125,11 @@ function buildCard(id) {
   $('.setOut', card).onclick = () => { c.t1 = Math.max(v.currentTime, c.t0 + 0.2); if (c.t1 - c.t0 > MAXDUR) c.t0 = c.t1 - MAXDUR; rangeTxt(); };
   $('.shot', card).onchange = e => {
     c.shot = e.target.value;
-    if (c.ready) { autoImpact(c); summary(c); updateViewer(); setT(0); }
+    if (c.ready) { autoImpact(c); summary(c); updateViewer(); setT(0); saveMeta(c); }
   };
   $('.hand', card).onchange = e => {
     c.hand = e.target.value;
-    if (c.ready) { resolveHand(c); recompute(c, true); renderAll(); summary(c); }
+    if (c.ready) { resolveHand(c); recompute(c, true); renderAll(); summary(c); saveMeta(c); }
   };
   $('.change', card).onclick = () => { input.value = ''; input.click(); };
   $('.go', card).onclick = () => analyze(c);
@@ -162,6 +178,7 @@ async function analyze(c) {
       dx.drawImage(v, 0, 0, dc.width, dc.height);
       ic.drawImage(dc, 0, 0, img.width, img.height);
       const bmp = await createImageBitmap(img);
+      const jpg = $('#autosave').checked ? await new Promise(r => img.toBlob(r, 'image/jpeg', 0.82)) : null;
       tsClock += 40;
       const r = pose.detectForVideo(dc, tsClock);
       const poses = r.landmarks.map((lm, k) => ({ lm: pack(lm, 4), wl: pack(r.worldLandmarks[k], 3) }));
@@ -170,7 +187,7 @@ async function analyze(c) {
         const b = x.boundingBox;
         return [b.originX / dc.width, b.originY / dc.height, b.width / dc.width, b.height / dc.height, x.categories[0].score];
       });
-      c.frames.push({ t, img: bmp, poses, boxes });
+      c.frames.push({ t, img: bmp, jpg, poses, boxes });
       barI.style.width = ((i + 1) / n * 100).toFixed(1) + '%';
       if (i % 3 === 0) {
         const el = (performance.now() - started) / 1000, rest = el / (i + 1) * (n - i - 1);
@@ -182,6 +199,10 @@ async function analyze(c) {
     c.status('');
     summary(c);
     updateViewer(true);
+    if ($('#autosave').checked) {
+      c.title = defaultTitle(c);
+      await saveNew(c);
+    }
   } catch (e) {
     console.error(e);
     c.status('解析できませんでした：' + (e.message || e), true);
@@ -204,6 +225,144 @@ function summary(c) {
   s.classList.remove('hidden');
 }
 const pct = (a, b) => b ? Math.round(a / b * 100) + '%' : '-';
+
+/* ---------------- 保存した動画（この端末のブラウザ内 IndexedDB） ---------------- */
+const DB = (() => {
+  let p;
+  const open = () => p ??= new Promise((res, rej) => {
+    const q = indexedDB.open('form-check', 1);
+    q.onupgradeneeded = () => { q.result.createObjectStore('meta', { keyPath: 'id' }); q.result.createObjectStore('data', { keyPath: 'id' }); };
+    q.onsuccess = () => res(q.result); q.onerror = () => rej(q.error);
+  });
+  const tx = async (stores, mode, fn) => {
+    const db = await open();
+    return new Promise((res, rej) => {
+      const t = db.transaction(stores, mode), r = fn(t);
+      t.oncomplete = () => res(r ? r.result : undefined);
+      t.onerror = () => rej(t.error); t.onabort = () => rej(t.error);
+    });
+  };
+  return {
+    list: () => tx(['meta'], 'readonly', t => t.objectStore('meta').getAll()),
+    get: id => tx(['data'], 'readonly', t => t.objectStore('data').get(id)),
+    putMeta: m => tx(['meta'], 'readwrite', t => { t.objectStore('meta').put(m); }),
+    put: (m, d) => tx(['meta', 'data'], 'readwrite', t => { t.objectStore('meta').put(m); t.objectStore('data').put(d); }),
+    del: id => tx(['meta', 'data'], 'readwrite', t => { t.objectStore('meta').delete(id); t.objectStore('data').delete(id); }),
+  };
+})();
+let libCount = 0, libMetas = {};
+const fmtDate = ms => { const d = new Date(ms); return `${d.getMonth() + 1}/${d.getDate()} ${d.getHours()}:${String(d.getMinutes()).padStart(2, '0')}`; };
+function defaultTitle(c) {
+  const base = (c.file?.name || '動画').replace(/\.[^.]+$/, '');
+  return `${SHOTS[c.shot].name} ${fmtDate(Date.now())}（${base}）`;
+}
+function metaOf(c, created) {
+  return {
+    id: c.libId, title: c.title, created: created ?? libMetas[c.libId]?.created ?? Date.now(),
+    shot: c.shot, hand: c.hand, fps: c.fps, W: c.W, H: c.H, n: c.frames.length,
+    dur: (c.frames.length - 1) / c.fps, impact: c.impact, manual: { ...c.manual },
+    thumb: c.frames[c.impact]?.jpg || c.frames[0]?.jpg || null,
+    bytes: c.frames.reduce((s, f) => s + (f.jpg?.size || 0), 0),
+  };
+}
+async function saveNew(c) {
+  if (c.frames.some(f => !f.jpg)) return;
+  try {
+    navigator.storage?.persist?.().catch(() => {});
+    c.libId = 'v' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+    const data = { id: c.libId, frames: c.frames.map(f => ({ t: f.t, jpg: f.jpg, poses: f.poses, boxes: f.boxes })) };
+    await DB.put(metaOf(c, Date.now()), data);
+    await refreshLibrary();
+  } catch (e) {
+    console.error(e); c.libId = null;
+    c.status('保存できませんでした（端末の空き容量が足りないかもしれません）。この動画はこのまま見られます。', true);
+  }
+}
+// 直したところ（インパクト・ヘッドの修正・打ち方・利き手）を保存し直す
+function saveMeta(c) {
+  if (!c.libId) return;
+  clearTimeout(c._saveT);
+  c._saveT = setTimeout(async () => {
+    try { await DB.putMeta(metaOf(c)); await refreshLibrary(); } catch (e) { console.error(e); }
+  }, 600);
+}
+async function refreshLibrary() {
+  let metas = [];
+  try { metas = await DB.list(); } catch (e) { console.warn('保存先が使えません', e); }
+  metas.sort((a, b) => b.created - a.created);
+  libCount = metas.length; libMetas = Object.fromEntries(metas.map(m => [m.id, m]));
+  $('#library').classList.toggle('hidden', !metas.length);
+  for (const c of Object.values(clips)) if (c.card && !c.dur && !c.ready) $('.fromlib', c.card).classList.toggle('hidden', !libCount);
+  const list = $('#libList');
+  list.querySelectorAll('img').forEach(i => URL.revokeObjectURL(i.src));
+  list.innerHTML = '';
+  for (const m of metas) {
+    const el = document.createElement('div'); el.className = 'item';
+    const img = document.createElement('img'); if (m.thumb) img.src = URL.createObjectURL(m.thumb);
+    const meta = document.createElement('div'); meta.className = 'meta';
+    const b = document.createElement('b'); b.textContent = m.title;
+    const sp = document.createElement('span'); sp.textContent = `${fmtDate(m.created)} 保存 ・ ${SHOTS[m.shot]?.name || ''} ・ ${m.dur.toFixed(1)}秒`;
+    meta.append(b, sp);
+    const acts = document.createElement('div'); acts.className = 'acts';
+    const btn = (t, cls, fn) => { const x = document.createElement('button'); x.textContent = t; x.className = cls; x.onclick = fn; acts.append(x); };
+    btn('Aで見る', 'a', () => loadFromLib(m.id, 'A'));
+    btn('Bで比べる', 'b', () => loadFromLib(m.id, 'B'));
+    btn('名前', '', async () => {
+      const t = prompt('名前（例：4月 フォア 横から）', m.title);
+      if (t == null || !t.trim()) return;
+      m.title = t.trim(); await DB.putMeta(m);
+      for (const c of Object.values(clips)) if (c.libId === m.id) { c.title = m.title; showLibCard(c); }
+      refreshLibrary();
+    });
+    btn('消す', 'del', async () => {
+      if (!confirm(`「${m.title}」を消します。もとに戻せません。よろしいですか？`)) return;
+      await DB.del(m.id);
+      for (const c of Object.values(clips)) if (c.libId === m.id) c.libId = null;
+      refreshLibrary();
+    });
+    el.append(img, meta, acts); list.append(el);
+  }
+  try {
+    const est = await navigator.storage?.estimate?.();
+    $('#libUsage').textContent = `${metas.length}本` + (est ? ` ・ 使用量 約${Math.round(est.usage / 1e6)}MB` : '');
+  } catch { $('#libUsage').textContent = `${metas.length}本`; }
+}
+function showLibCard(c) {
+  const card = c.card;
+  card.classList.remove('collapsed'); card.classList.add('lib');
+  $('.drop', card).classList.add('hidden'); $('.fromlib', card).classList.add('hidden'); $('.prev', card).classList.remove('hidden');
+  $('.libname', card).innerHTML = '';
+  const t = document.createElement('span'); t.className = 'range'; t.innerHTML = '保存した動画：<b></b>'; $('b', t).textContent = c.title;
+  $('.libname', card).append(t);
+  const still = $('.still', card), j = c.frames[c.impact]?.jpg;
+  if (still.src) URL.revokeObjectURL(still.src);
+  if (j) still.src = URL.createObjectURL(j);
+  $('.shot', card).value = c.shot; $('.hand', card).value = c.hand;
+}
+async function loadFromLib(id, slot) {
+  const c = clips[slot], m = libMetas[id];
+  if (!m || c.busy) return;
+  c.busy = true;
+  c.card.classList.remove('collapsed');
+  c.status('読み込み中…');
+  try {
+    const d = await DB.get(id);
+    reset(c);
+    c.video.pause(); c.video.removeAttribute('src'); c.file = null; c.dur = 0;
+    Object.assign(c, { libId: id, title: m.title, shot: m.shot, hand: m.hand, fps: m.fps, W: m.W, H: m.H, manual: { ...m.manual } });
+    c.frames = await Promise.all(d.frames.map(async f => ({ ...f, img: await createImageBitmap(f.jpg) })));
+    c.t0 = c.frames[0].t; c.t1 = c.frames[c.frames.length - 1].t;
+    postprocess(c);
+    c.impact = Math.max(0, Math.min(c.frames.length - 1, m.impact));
+    c.ready = true;
+    showLibCard(c);
+    c.status(''); summary(c);
+    tRel = 0; updateViewer(true);
+  } catch (e) {
+    console.error(e); c.status('読み込めませんでした：' + (e.message || e), true);
+  } finally { c.busy = false; }
+}
+refreshLibrary();
 
 /* ---------------- 後処理 ---------------- */
 const lmPx = (c, lm, k) => ({ x: lm[k * 4] * c.W, y: lm[k * 4 + 1] * c.H });
@@ -708,10 +867,10 @@ $('#scrub').oninput = e => { stop(); setT(+e.target.value); };
 $('#toImpact').onclick = () => { stop(); setT(0); };
 $('#setImpact').onclick = () => {
   stop();
-  for (const c of ready()) c.impact = idxAt(c, tRel);
+  for (const c of ready()) { c.impact = idxAt(c, tRel); saveMeta(c); }
   setupScrub(); setT(0);
 };
-$('#autoImpact').onclick = () => { stop(); ready().forEach(autoImpact); setupScrub(); setT(0); };
+$('#autoImpact').onclick = () => { stop(); ready().forEach(c => { autoImpact(c); saveMeta(c); }); setupScrub(); setT(0); };
 ['#tSkel', '#tAng', '#tRacket', '#tTrail', '#tWrist', '#tFull', '#tDim', '#tMirrorB'].forEach(s => $(s).onchange = renderAll);
 addEventListener('resize', () => { if (ready().length) { layout(); renderAll(); } });
 addEventListener('keydown', e => {
@@ -738,14 +897,14 @@ for (const id of ['A', 'B']) {
     if (id === 'B' && $('#tMirrorB').checked) x = 1 - x;
     const i = idxAt(c, tRel);
     c.manual[i] = { x, y };
-    recompute(c, false); summary(c);
+    recompute(c, false); summary(c); saveMeta(c);
     if ($('#fixAdvance').checked) { if (ready().length > 1) setT(snap(tRel) + stepT()); else setT(snap(tRel) + stepT()); }
     else renderAll();
   });
 }
 const fixTargets = () => ready();
-$('#fixNone').onclick = () => { for (const c of fixTargets()) { c.manual[idxAt(c, tRel)] = 'none'; recompute(c, false); } renderAll(); };
-$('#fixClear').onclick = () => { for (const c of fixTargets()) { delete c.manual[idxAt(c, tRel)]; recompute(c, false); } renderAll(); };
+$('#fixNone').onclick = () => { for (const c of fixTargets()) { c.manual[idxAt(c, tRel)] = 'none'; recompute(c, false); saveMeta(c); } renderAll(); };
+$('#fixClear').onclick = () => { for (const c of fixTargets()) { delete c.manual[idxAt(c, tRel)]; recompute(c, false); saveMeta(c); } renderAll(); };
 
 // 画像で保存
 $('#snap').onclick = () => {

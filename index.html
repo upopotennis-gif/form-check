@@ -54,6 +54,28 @@ button:disabled{opacity:.45;cursor:default}
 .status.err{color:var(--warn)}
 .summary{font-size:13px;background:var(--panel2);border-radius:10px;padding:8px 10px;margin-top:8px}
 .hidden{display:none!important}
+.card.collapsed{display:grid;place-items:center;min-height:120px;background:transparent;border-style:dashed}
+.card.collapsed::before{display:none}
+.card.collapsed>*:not(.addB){display:none!important}
+.card:not(.collapsed) .addB{display:none}
+.addB{font-size:15px;padding:12px 18px;border-color:var(--B);color:var(--text)}
+.addB small{display:block;color:var(--mute);font-size:12px;font-weight:400}
+.card h3 .x{margin-left:auto;font-size:12px;padding:2px 9px}
+.still{width:100%;max-height:340px;object-fit:contain;background:#000;border-radius:10px;display:block}
+.card.lib .vidonly{display:none!important}
+.card:not(.lib) .libonly{display:none!important}
+.fromlib{font-size:12.5px;color:var(--mute);text-align:center;margin-top:8px}
+.fromlib a{cursor:pointer}
+.lib-list{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:10px}
+.item{background:var(--panel);border:1px solid var(--line);border-radius:12px;overflow:hidden;display:flex;flex-direction:column}
+.item img{width:100%;aspect-ratio:16/10;object-fit:cover;background:#000;display:block}
+.item .meta{padding:8px 10px 4px;font-size:13px}
+.item .meta b{display:block;font-size:14px;word-break:break-all}
+.item .meta span{color:var(--mute);font-size:12px}
+.item .acts{display:flex;flex-wrap:wrap;gap:6px;padding:6px 10px 10px}
+.item .acts button{font-size:12.5px;padding:4px 9px}
+.item .acts .a{border-color:var(--A)} .item .acts .b{border-color:var(--B)}
+.item .acts .del{margin-left:auto;color:var(--warn)}
 
 /* viewer */
 #viewer{margin-top:4px}
@@ -99,15 +121,22 @@ footer{margin-top:30px;font-size:12px;color:var(--mute);text-align:center}
   <div class="privacy">動画は<b>この端末の中だけ</b>で処理します。どこにも送られません</div>
 </header>
 
-<h2><span class="num">1</span>動画を選ぶ <span class="note" style="font-weight:400">1本でも見られます。2本入れると比べられます</span></h2>
+<h2><span class="num">1</span>動画を選ぶ <span class="note" style="font-weight:400">1本だけでも見られます</span></h2>
 <div class="cards">
   <section class="card" id="cardA" style="--c:var(--A)"></section>
-  <section class="card" id="cardB" style="--c:var(--B)"></section>
+  <section class="card collapsed" id="cardB" style="--c:var(--B)"><button class="addB">＋ 比べる動画を追加<small>前に撮った動画とも比べられます</small></button></section>
 </div>
 <div class="row" style="margin-top:10px">
   <label>精度 <select id="quality"><option value="full">ふつう（速い）</option><option value="heavy">高い（時間がかかる）</option></select></label>
   <label>コマ数 <select id="fps"><option value="30">30コマ/秒</option><option value="60">60コマ/秒（スローで細かく）</option></select></label>
+  <label><input type="checkbox" id="autosave" checked>解析した動画を保存して、あとで選び直せるようにする</label>
 </div>
+
+<section id="library" class="hidden">
+  <h2><span class="num">♻</span>保存した動画 <span class="note" style="font-weight:400" id="libUsage"></span></h2>
+  <div class="lib-list" id="libList"></div>
+  <p class="note">この端末のブラウザの中だけに保存しています（ほかの端末や人からは見えません）。iPhone の Safari は、しばらくこのページを開かないと消えることがあります。ホーム画面に追加しておくと消えにくくなります。</p>
+</section>
 
 <div id="viewer" class="hidden">
   <h2><span class="num">2</span>フォームを見る</h2>
@@ -198,19 +227,24 @@ footer{margin-top:30px;font-size:12px;color:var(--mute);text-align:center}
 </div>
 
 <template id="cardTpl">
-  <h3><span class="tag"></span><span class="ttl"></span></h3>
+  <h3><span class="tag"></span><span class="ttl"></span><button class="x hidden">外す</button></h3>
   <div class="drop"><strong>動画をここにドロップ</strong>またはタップして選ぶ<input type="file" accept="video/*" hidden></div>
+  <div class="fromlib hidden"><a>保存した動画から選ぶ ↓</a></div>
   <div class="prev hidden">
-    <video playsinline muted controls preload="auto"></video>
-    <div class="row range"></div>
-    <div class="row">
+    <video class="vidonly" playsinline muted controls preload="auto"></video>
+    <img class="still libonly" alt="">
+    <div class="row range vidonly"></div>
+    <div class="row libonly libname"></div>
+    <div class="row vidonly">
       <button class="setIn">今の位置を開始に</button>
       <button class="setOut">今の位置を終了に</button>
+    </div>
+    <div class="row">
       <label>打ち方 <select class="shot"><option value="stroke">ストローク</option><option value="serve">サーブ・スマッシュ</option><option value="volley">ボレー</option></select></label>
       <label>利き手 <select class="hand"><option value="auto">自動</option><option value="R">右</option><option value="L">左</option></select></label>
     </div>
     <div class="row">
-      <button class="primary go">解析する</button>
+      <button class="primary go vidonly">解析する</button>
       <button class="change">動画を変える</button>
     </div>
     <div class="bar hidden"><i></i></div>
