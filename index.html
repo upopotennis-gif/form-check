@@ -1,0 +1,222 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>フォームチェック｜ソフトテニス</title>
+<meta name="description" content="ソフトテニスのフォーム動画から関節とラケットヘッドの動きを表示し、2本の動画をインパクトでそろえて比べるページ。動画は端末の中だけで処理します。">
+<link rel="icon" href="data:,">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=M+PLUS+1p:wght@400;700;800&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#0f1a17; --panel:#16241f; --panel2:#1d2f29; --line:#2c443b; --text:#e9f1ec; --mute:#9db3a8;
+  --court:#2f8f5b; --courtline:#f3f6f2; --accent:#d9f24a;
+  --A:#ff8a3d; --B:#3ec8ff; --racket:#ffe14d; --warn:#ffb4a0;
+  --r:14px;
+}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:var(--text);font-family:"M PLUS 1p",system-ui,sans-serif;line-height:1.6}
+body{background:
+  linear-gradient(90deg,transparent calc(50% - 1px),rgba(243,246,242,.05) calc(50% - 1px),rgba(243,246,242,.05) calc(50% + 1px),transparent calc(50% + 1px)) fixed,
+  radial-gradient(1200px 500px at 50% -200px,#1f3d31 0,var(--bg) 70%) fixed;}
+a{color:var(--accent)}
+.wrap{max-width:1180px;margin:0 auto;padding:0 16px 60px}
+header{padding:22px 0 10px;display:flex;flex-wrap:wrap;align-items:flex-end;gap:8px 18px}
+header h1{margin:0;font-size:clamp(22px,4vw,30px);font-weight:800;letter-spacing:.04em}
+header h1 small{display:block;font-size:12px;color:var(--accent);letter-spacing:.2em;font-weight:700}
+.privacy{font-size:12.5px;color:var(--mute);border:1px solid var(--line);border-radius:999px;padding:3px 12px}
+.privacy b{color:var(--accent)}
+h2{font-size:17px;margin:26px 0 10px;display:flex;align-items:center;gap:10px}
+h2 .num{display:inline-grid;place-items:center;width:26px;height:26px;border-radius:50%;background:var(--accent);color:#14210f;font-size:14px;font-weight:800}
+.cards{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+@media (max-width:760px){.cards{grid-template-columns:1fr}}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:14px;position:relative;overflow:hidden}
+.card::before{content:"";position:absolute;left:0;top:0;bottom:0;width:5px;background:var(--c)}
+.card h3{margin:0 0 8px;font-size:15px;display:flex;align-items:center;gap:8px}
+.tag{display:inline-block;min-width:24px;text-align:center;border-radius:6px;background:var(--c);color:#111;font-weight:800;padding:0 6px}
+.drop{border:2px dashed var(--line);border-radius:12px;padding:26px 12px;text-align:center;color:var(--mute);cursor:pointer;transition:.15s}
+.drop:hover,.drop.over{border-color:var(--c);color:var(--text);background:rgba(255,255,255,.02)}
+.drop strong{display:block;color:var(--text);font-size:15px;margin-bottom:4px}
+.prev video{width:100%;max-height:340px;background:#000;border-radius:10px;display:block}
+.row{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:8px}
+.row label{font-size:13px;color:var(--mute);display:flex;align-items:center;gap:6px}
+button,select{white-space:nowrap;font:inherit;font-size:13.5px;color:var(--text);background:var(--panel2);border:1px solid var(--line);border-radius:9px;padding:6px 11px;cursor:pointer}
+button:hover{border-color:var(--mute)}
+button.primary{background:var(--accent);color:#14210f;border-color:var(--accent);font-weight:800}
+button.on{background:var(--racket);color:#222;border-color:var(--racket);font-weight:700}
+button:disabled{opacity:.45;cursor:default}
+.range{font-size:13px;color:var(--mute)}
+.range b{color:var(--text)}
+.bar{height:8px;border-radius:99px;background:var(--panel2);overflow:hidden;margin-top:8px}
+.bar i{display:block;height:100%;width:0;background:var(--c);transition:width .1s}
+.status{font-size:13px;color:var(--mute);margin-top:6px;min-height:1.4em}
+.status.err{color:var(--warn)}
+.summary{font-size:13px;background:var(--panel2);border-radius:10px;padding:8px 10px;margin-top:8px}
+.hidden{display:none!important}
+
+/* viewer */
+#viewer{margin-top:4px}
+.modebar{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px}
+.modebar button.sel{background:var(--text);color:var(--bg);font-weight:700}
+.stage{display:grid;gap:10px;grid-template-columns:1fr 1fr;align-items:start}
+.stage.one{grid-template-columns:minmax(0,760px);justify-content:center}
+@media (max-width:640px){.stage{grid-template-columns:1fr 1fr;gap:6px}}
+.view{position:relative;background:#000;border-radius:12px;overflow:hidden;border:2px solid var(--c)}
+.view canvas{display:block;width:100%;height:auto;touch-action:manipulation}
+.view .lbl{position:absolute;left:8px;top:6px;font-size:12px;font-weight:800;background:var(--c);color:#111;border-radius:6px;padding:0 7px}
+.view.fix canvas{cursor:crosshair}
+.controls{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:10px 12px;margin-top:10px}
+.tl{display:flex;align-items:center;gap:10px}
+.tl input[type=range]{flex:1;accent-color:var(--accent)}
+.time{font-variant-numeric:tabular-nums;font-size:13px;min-width:110px;text-align:right;color:var(--mute)}
+@media (max-width:640px){.tl{flex-wrap:wrap}.tl input[type=range]{order:5;flex:1 1 100%}.time{min-width:0;flex:1}.stage.stack{grid-template-columns:1fr}}
+.time b{color:var(--text)}
+.toggles label{font-size:13px;color:var(--text);display:inline-flex;gap:5px;align-items:center;margin-right:10px;white-space:nowrap}
+.fixbar{background:#2b2a14;border:1px solid #5c5520;border-radius:10px;padding:8px 10px;font-size:13px;margin-top:8px}
+.grid2{display:grid;grid-template-columns:minmax(0,1.5fr) minmax(0,1fr);gap:12px;margin-top:12px}
+@media (max-width:860px){.grid2{grid-template-columns:1fr}}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:12px}
+.panel h4{margin:0 0 8px;font-size:14px;display:flex;justify-content:space-between;align-items:center;gap:8px}
+#graph{width:100%;height:220px;display:block;cursor:pointer}
+table{width:100%;border-collapse:collapse;font-size:13.5px;font-variant-numeric:tabular-nums}
+th,td{padding:5px 6px;border-bottom:1px solid var(--line);text-align:right}
+th:first-child,td:first-child{text-align:left;color:var(--mute);font-weight:400}
+th.A{color:var(--A)} th.B{color:var(--B)}
+.note{font-size:12.5px;color:var(--mute)}
+.help{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:12px}
+.help .panel p,.help .panel li{font-size:13.5px}
+.help ul{margin:4px 0;padding-left:1.2em}
+footer{margin-top:30px;font-size:12px;color:var(--mute);text-align:center}
+.legend{display:flex;gap:12px;font-size:12px;color:var(--mute);flex-wrap:wrap}
+.legend span::before{content:"";display:inline-block;width:14px;height:3px;border-radius:2px;background:var(--c);vertical-align:middle;margin-right:4px}
+</style>
+</head>
+<body>
+<div class="wrap">
+<header>
+  <h1><small>SOFT TENNIS FORM CHECK</small>フォームチェック</h1>
+  <div class="privacy">動画は<b>この端末の中だけ</b>で処理します。どこにも送られません</div>
+</header>
+
+<h2><span class="num">1</span>動画を選ぶ <span class="note" style="font-weight:400">1本でも見られます。2本入れると比べられます</span></h2>
+<div class="cards">
+  <section class="card" id="cardA" style="--c:var(--A)"></section>
+  <section class="card" id="cardB" style="--c:var(--B)"></section>
+</div>
+<div class="row" style="margin-top:10px">
+  <label>精度 <select id="quality"><option value="full">ふつう（速い）</option><option value="heavy">高い（時間がかかる）</option></select></label>
+  <label>コマ数 <select id="fps"><option value="30">30コマ/秒</option><option value="60">60コマ/秒（スローで細かく）</option></select></label>
+</div>
+
+<div id="viewer" class="hidden">
+  <h2><span class="num">2</span>フォームを見る</h2>
+  <div class="modebar" id="modebar">
+    <button data-mode="side" class="sel">並べて見る</button>
+    <button data-mode="overlay">重ねて比べる</button>
+  </div>
+  <div class="stage" id="stage">
+    <div class="view" id="viewA" style="--c:var(--A)"><span class="lbl">A</span><canvas></canvas></div>
+    <div class="view" id="viewB" style="--c:var(--B)"><span class="lbl">B</span><canvas></canvas></div>
+  </div>
+
+  <div class="controls">
+    <div class="tl">
+      <button id="play" title="再生（スペース）">▶</button>
+      <button id="prev" title="1コマ戻る（←）">◀|</button>
+      <button id="next" title="1コマ進む（→）">|▶</button>
+      <input type="range" id="scrub" min="0" max="1" step="0.001" value="0">
+      <div class="time" id="time"></div>
+    </div>
+    <div class="row">
+      <label>速さ <select id="speed"><option value="1">1倍</option><option value="0.5">1/2</option><option value="0.25" selected>1/4</option><option value="0.1">1/10</option></select></label>
+      <button id="toImpact">インパクトへ</button>
+      <button id="setImpact">今のコマをインパクトにする</button>
+      <button id="autoImpact">インパクトを自動で探す</button>
+      <button id="fix">ヘッドの位置を直す</button>
+      <button id="snap">画像で保存</button>
+    </div>
+    <div class="row toggles">
+      <label><input type="checkbox" id="tSkel" checked>骨格</label>
+      <label><input type="checkbox" id="tAng" checked>角度</label>
+      <label><input type="checkbox" id="tRacket" checked>ラケット</label>
+      <label><input type="checkbox" id="tTrail" checked>ヘッドの軌跡</label>
+      <label><input type="checkbox" id="tWrist">手首の軌跡</label>
+      <label><input type="checkbox" id="tFull">軌跡をスイング全体で</label>
+      <label><input type="checkbox" id="tDim">映像を暗く</label>
+      <label id="lMirrorB"><input type="checkbox" id="tMirrorB">Bを左右反転</label>
+    </div>
+    <div class="fixbar hidden" id="fixbar">
+      映像のラケットヘッド（面の真ん中）をタップすると、そのコマを直して次のコマへ進みます。
+      <div class="row">
+        <button id="fixNone">このコマはラケットなし</button>
+        <button id="fixClear">このコマの修正を消す</button>
+        <label><input type="checkbox" id="fixAdvance" checked>タップ後に1コマ進む</label>
+      </div>
+    </div>
+  </div>
+
+  <div class="grid2">
+    <div class="panel">
+      <h4>グラフ <select id="metric"></select></h4>
+      <canvas id="graph"></canvas>
+      <div class="legend" id="legend"></div>
+      <div class="note">横軸はインパクトからの時間（秒）。グラフをタップするとその時点へ移動します。</div>
+    </div>
+    <div class="panel">
+      <h4>このコマの数値</h4>
+      <table id="table"></table>
+      <p class="note">角度は画面の上での角度（2D）です。撮る向きが違う動画どうしでは比べにくいので、同じ向き・同じ距離から撮った動画で比べてください。「ねじれ」と「ヘッドの速さ」は目安です。</p>
+    </div>
+  </div>
+</div>
+
+<h2><span class="num">?</span>うまく見るために</h2>
+<div class="help">
+  <div class="panel"><h4>撮り方</h4><ul>
+    <li>スマホを<b>固定</b>して撮る（三脚・フェンスに固定）</li>
+    <li>頭から足先、ラケットの先まで<b>全身が入る</b>距離で</li>
+    <li>比べる動画は<b>同じ向き</b>から（真横どうし・真後ろどうし）</li>
+    <li>スローモーション撮影だとヘッドがぶれにくく、よく取れます</li>
+    <li>1本は1〜2スイング（数秒）が目安。長い動画は範囲を決めてから解析</li>
+  </ul></div>
+  <div class="panel"><h4>見方</h4><ul>
+    <li><b>並べて見る</b>：2本をインパクトの瞬間でそろえて同時に動かします</li>
+    <li><b>重ねて比べる</b>：Bの骨格を、Aの腰の位置と胴の長さに合わせてAの上に重ねます</li>
+    <li>利き手や撮る向きが逆のときは「Bを左右反転」</li>
+    <li>インパクトは、ヘッドが一番速いコマを自動で選びます。ずれていたら「今のコマをインパクトにする」</li>
+  </ul></div>
+  <div class="panel"><h4>ラケットヘッドについて</h4><ul>
+    <li>ラケットは画像認識で自動で探し、面の真ん中あたりを推定します</li>
+    <li>速いスイングで映像がぶれると見つからないコマがあります。前後のコマから補います（点線の丸）</li>
+    <li>ずれているときは「ヘッドの位置を直す」でタップして直せます（四角の印）</li>
+  </ul></div>
+</div>
+
+<footer>フォームチェック ― 姿勢の推定に MediaPipe（Google）を使っています。結果は目安です。</footer>
+</div>
+
+<template id="cardTpl">
+  <h3><span class="tag"></span><span class="ttl"></span></h3>
+  <div class="drop"><strong>動画をここにドロップ</strong>またはタップして選ぶ<input type="file" accept="video/*" hidden></div>
+  <div class="prev hidden">
+    <video playsinline muted controls preload="auto"></video>
+    <div class="row range"></div>
+    <div class="row">
+      <button class="setIn">今の位置を開始に</button>
+      <button class="setOut">今の位置を終了に</button>
+      <label>利き手 <select class="hand"><option value="auto">自動</option><option value="R">右</option><option value="L">左</option></select></label>
+    </div>
+    <div class="row">
+      <button class="primary go">解析する</button>
+      <button class="change">動画を変える</button>
+    </div>
+    <div class="bar hidden"><i></i></div>
+    <div class="status"></div>
+    <div class="summary hidden"></div>
+  </div>
+</template>
+
+<script type="module" src="app.js"></script>
+</body>
+</html>
